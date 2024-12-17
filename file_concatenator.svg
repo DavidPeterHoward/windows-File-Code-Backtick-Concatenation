@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+    <!-- Background -->
+    <rect width="128" height="128" fill="transparent"/>
+
+    <!-- Files -->
+    <!-- Rear file -->
+    <path d="M24 16 L64 16 L84 36 L84 96 L24 96 Z" fill="#e9ecef" stroke="#6c757d" stroke-width="4"/>
+    <path d="M64 16 L64 36 L84 36" fill="none" stroke="#6c757d" stroke-width="4"/>
+    
+    <!-- Front file -->
+    <path d="M44 32 L84 32 L104 52 L104 112 L44 112 Z" fill="#ffffff" stroke="#0d6efd" stroke-width="4"/>
+    <path d="M84 32 L84 52 L104 52" fill="none" stroke="#0d6efd" stroke-width="4"/>
+    
+    <!-- Concatenation arrows -->
+    <path d="M54 64 L94 64 M84 54 L94 64 L84 74" fill="none" stroke="#0d6efd" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M54 80 L94 80 M84 70 L94 80 L84 90" fill="none" stroke="#0d6efd" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -15,3 +15,4 @@ file_concatenator.py
 ├── requirements.txt
 ├── test_file_concatenator.py
 ```
+![Interface of application](interface.png)
