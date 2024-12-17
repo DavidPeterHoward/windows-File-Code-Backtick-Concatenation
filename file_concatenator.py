@@ -181,6 +181,7 @@ class MainWindow(QMainWindow):
             '.yaml': 'yaml',
             '.ps1': 'ps1',
             '.sql': 'sql',
+            '.ini': 'ini',
             '.txt': 'text'
         }
         return language_map.get(ext, '')
