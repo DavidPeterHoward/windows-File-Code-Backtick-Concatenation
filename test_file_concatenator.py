@@ -1,10 +1,10 @@
 import pytest
 import os
 import tempfile
-import json
-from PyQt5.QtWidgets import QApplication, QListWidgetItem
+from pathlib import Path
+from PyQt5.QtWidgets import QApplication, QMessageBox
 from PyQt5.QtCore import Qt, QSettings
-from file_concatenator import FileConcatenator, RecentFilesList
+from file_concatenator import MainWindow
 
 @pytest.fixture
 def app():
@@ -12,181 +12,126 @@ def app():
 
 @pytest.fixture
 def window(app):
-    return FileConcatenator()
-
-@pytest.fixture
-def recent_files_list(app):
-    return RecentFilesList()
+    return MainWindow()
 
 @pytest.fixture
 def temp_files():
     with tempfile.TemporaryDirectory() as tmp_dir:
-        # Create test files
-        file1_path = os.path.join(tmp_dir, "test1.py")
-        file2_path = os.path.join(tmp_dir, "test2.py")
+        # Create test files with different extensions
+        files = {
+            'python': ("test1.py", "def test1():\n    return 'test1'"),
+            'javascript': ("test2.js", "function test2() {\n    return 'test2';\n}"),
+            'text': ("test3.txt", "Plain text content"),
+            'markdown': ("test4.md", "# Markdown Test\nContent"),
+        }
         
-        with open(file1_path, 'w') as f1:
-            f1.write("def test1():\n    return 'test1'")
+        created_files = []
+        for _, (filename, content) in files.items():
+            file_path = os.path.join(tmp_dir, filename)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            created_files.append(file_path)
         
-        with open(file2_path, 'w') as f2:
-            f2.write("def test2():\n    return 'test2'")
-        
-        # Create a subdirectory with a file
         subdir = os.path.join(tmp_dir, "subdir")
         os.mkdir(subdir)
-        file3_path = os.path.join(subdir, "test3.py")
-        with open(file3_path, 'w') as f3:
-            f3.write("def test3():\n    return 'test3'")
+        nested_file = os.path.join(subdir, "nested.py")
+        with open(nested_file, 'w', encoding='utf-8') as f:
+            f.write("def nested():\n    return 'nested'")
+        created_files.append(nested_file)
         
-        yield tmp_dir, [file1_path, file2_path, file3_path]
+        yield tmp_dir, created_files
 
-def test_recent_files_list_add(recent_files_list, temp_files):
+def test_window_initialization(window):
+    assert window.windowTitle() == "File Concatenator"
+    assert hasattr(window, 'file_tree')
+    assert hasattr(window, 'content_tabs')
+    assert hasattr(window, 'recent_folders_widget')
+
+def test_path_toggle(window):
+    assert window.show_absolute_paths == True
+    window.path_toggle.setChecked(False)
+    assert window.show_absolute_paths == False
+
+def test_file_selection(window, temp_files, qtbot):
     tmp_dir, files = temp_files
     
-    # Add files to recent list
-    for file_path in files:
-        recent_files_list.add_recent_file(file_path)
+    # Select a Python file
+    py_file = next(f for f in files if f.endswith('.py'))
+    window.file_tree.setRootIndex(window.file_tree.model.index(tmp_dir))
+    index = window.file_tree.model.index(py_file)
+    window.file_tree.selectionModel().select(index, window.file_tree.selectionModel().Select)
     
-    # Check if files were added
-    assert recent_files_list.count() == len(files)
-    
-    # Check if the most recent file is at the top
-    assert recent_files_list.item(0).data(Qt.UserRole) == files[-1]
+    qtbot.wait(100)  # Allow for content update
+    content = window.content_tabs.content_editor.toPlainText()
+    assert '# File:' in content
+    assert 'def test1()' in content
+    assert '```python' in content
 
-def test_recent_files_list_star(recent_files_list, temp_files):
-    tmp_dir, files = temp_files
-    
-    # Add a file and star it
-    recent_files_list.add_recent_file(files[0])
-    item = recent_files_list.item(0)
-    recent_files_list.toggle_star(item)
-    
-    # Check if file is starred
-    assert files[0] in recent_files_list.starred_items
-    
-    # Unstar the file
-    recent_files_list.toggle_star(item)
-    assert files[0] not in recent_files_list.starred_items
-
-def test_recent_files_list_max_items(recent_files_list):
-    # Create more files than the max limit
-    max_files = recent_files_list.max_items + 5
-    test_files = []
-    
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        for i in range(max_files):
-            file_path = os.path.join(tmp_dir, f"test{i}.txt")
-            with open(file_path, 'w') as f:
-                f.write(f"test{i}")
-            test_files.append(file_path)
-            recent_files_list.add_recent_file(file_path)
-    
-    # Check if list is limited to max items
-    assert recent_files_list.count() == recent_files_list.max_items
-
-def test_format_options(window):
-    # Test language selection
-    window.language_combo.setCurrentText('javascript')
-    assert window.language_combo.currentText() == 'javascript'
-    
-    # Test format options persistence
-    window.current_format['use_backticks'] = False
-    window.save_settings()
-    
-    # Create new window instance
-    new_window = FileConcatenator()
-    # Note: Format settings would be loaded in initialization
-
-def test_rabbitmq_integration(window):
-    # Test sending message
-    test_message = {
-        'action': 'concatenate',
-        'files': ['test1.py', 'test2.py']
+def test_language_detection(window):
+    test_files = {
+        'test.py': 'python',
+        'test.js': 'javascript',
+        'test.md': 'markdown',
+        'test.txt': 'text',
+        'test.unknown': ''
     }
-    window.send_rabbitmq_message(test_message)
     
-    # Test receiving message
-    window.handle_rabbitmq_message(json.dumps(test_message))
+    for file_path, expected_lang in test_files.items():
+        detected_lang = window._get_language_from_extension(file_path)
+        assert detected_lang == expected_lang
 
-def test_file_tree_navigation(window, temp_files):
+def test_recent_folders(window, temp_files, qtbot):
+    tmp_dir, _ = temp_files
+    window._add_recent_folder(tmp_dir)
+    assert window.recent_folders[0] == tmp_dir
+    assert window.recent_folders_widget.item(0).text() == tmp_dir
+
+def test_clipboard_operations(window, qtbot):
+    test_content = "Test clipboard content"
+    window.content_tabs.content_editor.setPlainText(test_content)
+    window._copy()
+    assert QApplication.clipboard().text() == test_content
+    
+    new_content = "New test content"
+    QApplication.clipboard().setText(new_content)
+    window._paste()
+    assert window.content_tabs.content_editor.toPlainText() == new_content
+
+def test_invalid_path_handling(window, qtbot, monkeypatch):
+    def mock_warning(*args, **kwargs):
+        pass
+    monkeypatch.setattr(QMessageBox, "warning", mock_warning)
+    
+    invalid_path = r"X:\invalid\path"
+    window.path_input.setText(invalid_path)
+    window._navigate_to_path()
+    assert window.file_tree.model.filePath(window.file_tree.rootIndex()) != invalid_path
+
+def test_multiple_file_selection(window, temp_files, qtbot):
     tmp_dir, files = temp_files
+    window.file_tree.setRootIndex(window.file_tree.model.index(tmp_dir))
     
-    # Set root path
-    window.tree_view.setRootIndex(window.model.index(tmp_dir))
+    # Select first two files
+    for file_path in files[:2]:
+        index = window.file_tree.model.index(file_path)
+        window.file_tree.selectionModel().select(
+            index,
+            window.file_tree.selectionModel().Select
+        )
     
-    # Check if files are visible
-    model = window.tree_view.model()
-    root_index = window.tree_view.rootIndex()
-    visible_files = []
-    
-    for i in range(model.rowCount(root_index)):
-        index = model.index(i, 0, root_index)
-        file_path = model.filePath(index)
-        visible_files.append(file_path)
-    
-    # Check if test files are in the visible files
-    assert any(os.path.basename(files[0]) in f for f in visible_files)
-    assert any(os.path.basename(files[1]) in f for f in visible_files)
+    qtbot.wait(100)  # Allow for content update
+    content = window.content_tabs.content_editor.toPlainText()
+    assert content.count('# File:') == 2
+    assert content.count('```python') >= 1
 
-def test_path_combobox(window, temp_files):
-    tmp_dir, files = temp_files
+def test_settings_persistence(window, qtbot):
+    test_size = (900, 700)
+    window.resize(*test_size)
+    window._toggle_path_mode(Qt.Unchecked)
+    window.closeEvent(None)  # Trigger settings save
     
-    # Set current path
-    window.path_combo.addItem(tmp_dir)
-    window.path_combo.setCurrentText(tmp_dir)
-    
-    assert window.path_combo.currentText() == tmp_dir
-
-def test_window_state_persistence(window):
-    # Modify window state
-    window.resize(800, 600)
-    window.save_settings()
-    
-    # Create new window instance
-    new_window = FileConcatenator()
-    
-    # Check if size was restored
+    # Create new window
+    new_window = MainWindow()
+    assert new_window.show_absolute_paths == False
     assert new_window.size().width() >= 800
     assert new_window.size().height() >= 600
-
-def test_concatenate_with_format(window, temp_files):
-    tmp_dir, files = temp_files
-    
-    # Select files in tree view
-    model = window.tree_view.model()
-    for file_path in files[:2]:  # Select first two files
-        index = model.index(file_path)
-        window.tree_view.selectionModel().select(index, 
-            window.tree_view.selectionModel().Select)
-    
-    # Set format options
-    window.current_format['language'] = 'python'
-    window.current_format['use_backticks'] = True
-    window.current_format['show_filename'] = True
-    
-    # Concatenate files
-    window.concatenate_files()
-    
-    # Check output
-    output = window.text_output.toPlainText()
-    assert '```python' in output
-    assert '# File:' in output
-    assert 'test1()' in output
-    assert 'test2()' in output
-
-def test_status_bar_updates(window, temp_files):
-    tmp_dir, files = temp_files
-    
-    # Select a file
-    model = window.tree_view.model()
-    index = model.index(files[0])
-    window.tree_view.selectionModel().select(index, 
-        window.tree_view.selectionModel().Select)
-    
-    # Check if status bar updates
-    assert window.status_label.text() != ""
-
-def test_cleanup(window):
-    # Test proper cleanup on window close
-    window.close()
-    assert not window.rabbitmq_thread.isRunning()
