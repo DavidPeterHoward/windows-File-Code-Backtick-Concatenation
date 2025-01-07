@@ -6,7 +6,7 @@ Purpose of this application is to assist with code uploads to web-based LLMs suc
 
 
 ```
-file_concatenator.py
+/file_concatenator
 ├── .gitignore
 ├── Cleanup-Registry.ps1
 ├── file_concatenator.ico
