@@ -5,8 +5,8 @@ from PyQt5.QtWidgets import (
     QTreeView, QFileSystemModel, QPlainTextEdit, QTabWidget, QCheckBox,
     QLineEdit, QPushButton, QListWidget, QLabel, QMessageBox, QHBoxLayout, QAction, QFrame, QFileDialog
 )
-from PyQt5.QtCore import Qt, QDir, QSize, pyqtSignal, QSettings
-from PyQt5.QtGui import QIcon, QPalette, QColor, QFont, QSyntaxHighlighter, QTextCharFormat
+from PyQt5.QtCore import Qt, QDir, QSize, pyqtSignal, QSettings, QUrl, QTemporaryFile, QMimeData
+from PyQt5.QtGui import QIcon, QPalette, QColor, QFont, QSyntaxHighlighter, QTextCharFormat, QDrag
 import qtawesome as qta
 
 class CompactToolBar(QToolBar):
@@ -68,12 +68,40 @@ class EnhancedTreeView(QTreeView):
         for i in range(4):
             self.resizeColumnToContents(i)
 
+class DraggableTextEdit(QPlainTextEdit):
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.drag_start_position = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not hasattr(self, 'drag_start_position'):
+            return
+
+        if (event.buttons() & Qt.LeftButton) and \
+           (event.pos() - self.drag_start_position).manhattanLength() > QApplication.startDragDistance():
+            drag = QDrag(self)
+            mime_data = QMimeData()
+            mime_data.setText(self.toPlainText())
+            
+            # Create temporary file for drag and drop
+            temp_file = QTemporaryFile()
+            if temp_file.open():
+                temp_file.write(self.toPlainText().encode())
+                temp_file.flush()
+                urls = [QUrl.fromLocalFile(temp_file.fileName())]
+                mime_data.setUrls(urls)
+                temp_file.setParent(drag)  # This keeps the temp file alive during drag
+            
+            drag.setMimeData(mime_data)
+            drag.exec_(Qt.CopyAction)
+
 class ContentTabs(QTabWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setDocumentMode(True)
         self.setTabsClosable(False)
-        self.content_editor = QPlainTextEdit()
+        self.content_editor = DraggableTextEdit()
         self.content_editor.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.content_editor.setFont(QFont("Consolas", 10))
         self.addTab(self.content_editor, "Content")
@@ -82,20 +110,30 @@ class ContentTabs(QTabWidget):
         self.content_editor.setPlainText(content)
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, initial_path=None):
         super().__init__()
         self.setWindowTitle("File Concatenator")
         self.setGeometry(100, 100, 1400, 800)
         
-        # Set application icon
-        icon_path = os.path.join(os.path.dirname(__file__), 'file_concatenator.svg')
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+        icon_path = os.path.join(os.path.dirname(__file__), 'file_concatenator.ico')
+        self.setWindowIcon(QIcon(icon_path))
             
         self.recent_folders = []
         self.show_absolute_paths = True
         self._create_ui()
         self._load_settings()
+        
+        if initial_path:
+            self._initialize_with_path(initial_path)
+
+    def _initialize_with_path(self, path):
+        if os.path.exists(path):
+            if os.path.isfile(path):
+                path = os.path.dirname(path)
+            self.file_tree.setRootIndex(self.file_tree.model.index(path))
+            self.path_input.setText(path)
+            self._add_recent_folder(path)
+            self.statusBar().showMessage(f"Opened path: {path}")
 
     def _create_ui(self):
         self.setStyleSheet("""
@@ -127,6 +165,14 @@ class MainWindow(QMainWindow):
         self.nav_bar = QToolBar("Navigation Bar", self)
         self.nav_bar.setObjectName("NavigationBar")
         self.nav_bar.setMovable(False)
+        self.nav_bar.setStyleSheet("""
+            QToolBar {
+                background-color: #f8f9fa;
+                border-bottom: 1px solid #dee2e6;
+                spacing: 2px;
+                padding: 2px;
+            }
+        """)
         self.addToolBar(self.nav_bar)
 
         self.path_input = QLineEdit()
@@ -141,17 +187,21 @@ class MainWindow(QMainWindow):
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         layout = QVBoxLayout(main_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
         splitter = QSplitter(Qt.Horizontal)
 
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
         self.file_tree = EnhancedTreeView()
         left_layout.addWidget(self.file_tree)
 
         self.recent_folders_widget = QListWidget()
         self.recent_folders_widget.setFixedHeight(80)
         self.recent_folders_widget.itemClicked.connect(self._navigate_to_recent)
-        left_layout.addWidget(QLabel("Recently Opened Folders:"))
+        recent_label = QLabel("Recently Opened Folders:")
+        recent_label.setContentsMargins(2, 0, 0, 0)
+        left_layout.addWidget(recent_label)
         left_layout.addWidget(self.recent_folders_widget)
 
         splitter.addWidget(left_panel)
@@ -197,15 +247,13 @@ class MainWindow(QMainWindow):
         content = []
         selected_indexes = self.file_tree.selectionModel().selectedIndexes()
         
-        # Get unique file paths (avoiding duplicate columns)
         unique_paths = set()
         for index in selected_indexes:
-            if index.column() == 0:  # Only process the first column
+            if index.column() == 0:
                 path = self.file_tree.model.filePath(index)
                 if os.path.isfile(path):
                     unique_paths.add(path)
         
-        # Process each file
         for file_path in sorted(unique_paths):
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
@@ -223,7 +271,6 @@ class MainWindow(QMainWindow):
 
         self.content_tabs.set_content('\n'.join(content))
         self.statusBar().showMessage(f"Selected {len(unique_paths)} file(s)")
-    
     
     def _refresh(self): self.file_tree.model.setRootPath("")
     def _copy(self): QApplication.clipboard().setText(self.content_tabs.content_editor.toPlainText())
@@ -265,23 +312,44 @@ class MainWindow(QMainWindow):
 
     def _toggle_path_mode(self, state):
         self.show_absolute_paths = state == Qt.Checked
-        # Refresh current view to update paths
         self._on_selection_changed(self.file_tree.selectionModel().selection(), None)
 
     def _load_settings(self):
-        settings = QSettings('FileConcatenator', 'Settings')
-        self.restoreGeometry(settings.value('geometry', self.saveGeometry()))
-        self.restoreState(settings.value('windowState', self.saveState()))
+        try:
+            settings = QSettings('FileConcatenator', 'Settings')
+            if settings.contains('geometry'):
+                self.restoreGeometry(settings.value('geometry'))
+            if settings.contains('windowState'):
+                self.restoreState(settings.value('windowState'))
+            if settings.contains('show_absolute_paths'):
+                self.show_absolute_paths = settings.value('show_absolute_paths', type=bool)
+            else:
+                self.show_absolute_paths = True
+            self.path_toggle.setChecked(self.show_absolute_paths)
+        except Exception as e:
+            print(f"Error loading settings: {e}")
+            self.show_absolute_paths = True
+            self.path_toggle.setChecked(True)
 
     def closeEvent(self, event):
-        settings = QSettings('FileConcatenator', 'Settings')
-        settings.setValue('geometry', self.saveGeometry())
-        settings.setValue('windowState', self.saveState())
+        try:
+            settings = QSettings('FileConcatenator', 'Settings')
+            settings.setValue('geometry', self.saveGeometry())
+            settings.setValue('windowState', self.saveState())
+            settings.setValue('show_absolute_paths', self.show_absolute_paths)
+            settings.sync()
+        except Exception as e:
+            print(f"Error saving settings: {e}")
         super().closeEvent(event)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
-    window = MainWindow()
+    
+    initial_path = None
+    if len(sys.argv) > 1:
+        initial_path = sys.argv[1]
+    
+    window = MainWindow(initial_path)
     window.show()
     sys.exit(app.exec_())

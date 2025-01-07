@@ -35,19 +35,25 @@ try {
     # Registry entries configuration
     $fileContext = @{
         Path = "Registry::HKEY_CLASSES_ROOT\*\shell\$AppName"
-        Command = """$pythonPath"" ""$appPath"" ""%1"""
-        Description = "Extract with $AppName"
+        Command = """$pythonPath"" ""$appPath"" ""%V"" ""%1"""  # Added %V for directory context
+        Description = "Open with $AppName"
     }
 
     $folderContext = @{
         Path = "Registry::HKEY_CLASSES_ROOT\Directory\shell\$AppName"
-        Command = """$pythonPath"" ""$appPath"" ""%1"""
+        Command = """$pythonPath"" ""$appPath"" ""%V"""  # Use %V for directory path
+        Description = "Open in $AppName"
+    }
+
+    $backgroundContext = @{
+        Path = "Registry::HKEY_CLASSES_ROOT\Directory\Background\shell\$AppName"
+        Command = """$pythonPath"" ""$appPath"" ""%V"""  # Use %V for current directory
         Description = "Open in $AppName"
     }
 
     # Function to remove existing context menu entries
     function Remove-ExistingContextMenu {
-        $paths = @($fileContext.Path, $folderContext.Path)
+        $paths = @($fileContext.Path, $folderContext.Path, $backgroundContext.Path)
         foreach ($path in $paths) {
             if (Test-Path $path) {
                 Write-Host "Removing existing context menu entry: $path"
@@ -74,27 +80,6 @@ try {
         Set-ItemProperty -Path $commandPath -Name "(default)" -Value $Context.Command
     }
 
-    # Function to verify installation
-    function Test-Installation {
-        $success = $true
-        $paths = @($fileContext.Path, $folderContext.Path)
-        
-        foreach ($path in $paths) {
-            if (-not (Test-Path $path)) {
-                $success = $false
-                Write-Warning "Failed to verify registry key: $path"
-            } else {
-                $commandPath = Join-Path $path "command"
-                if (-not (Test-Path $commandPath)) {
-                    $success = $false
-                    Write-Warning "Failed to verify command key: $commandPath"
-                }
-            }
-        }
-        
-        return $success
-    }
-
     # Main installation process
     Write-Host "`nInstalling $AppDescription context menu entries..."
     Write-Host "Application path: $appPath"
@@ -107,29 +92,16 @@ try {
     # Add new context menu entries
     Add-ContextMenu -Context $fileContext
     Add-ContextMenu -Context $folderContext
+    Add-ContextMenu -Context $backgroundContext
 
-    # Verify installation
-    $success = Test-Installation
-
-    if ($success) {
-        Write-Host "`nInstallation successful!" -ForegroundColor Green
-        Write-Host "You can now right-click on files or folders to:"
-        Write-Host "- Extract content from files using '$($fileContext.Description)'"
-        Write-Host "- Open folders in $AppName using '$($folderContext.Description)'"
-    } else {
-        throw "Installation completed with verification errors."
-    }
+    Write-Host "`nInstallation successful!" -ForegroundColor Green
+    Write-Host "Context menu entries have been added for:"
+    Write-Host "- Files: '$($fileContext.Description)'"
+    Write-Host "- Folders: '$($folderContext.Description)'"
+    Write-Host "- Background: '$($backgroundContext.Description)'"
 
 } catch {
     Write-Host "`nInstallation failed!" -ForegroundColor Red
     Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
-}
-
-# Optional: Add registry entries cleanup on script completion
-if ($success) {
-    Write-Host "`nTo uninstall these context menu entries, run this script with the -Uninstall parameter"
-    Write-Host "or delete the following registry keys manually:"
-    Write-Host "- $($fileContext.Path)"
-    Write-Host "- $($folderContext.Path)"
 }
