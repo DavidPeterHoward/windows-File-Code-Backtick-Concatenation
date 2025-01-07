@@ -1,4 +1,4 @@
-# Cleanup-OldRegistry.ps1
+# Cleanup-Registry.ps1
 
 $ErrorActionPreference = "Stop"
 
