@@ -1,6 +1,7 @@
 pyqt5
 qtawesome
 pika
+pyinstaller
 pytest>=7.0.0
 pytest-qt>=4.2.0
 pytest-cov>=4.1.0
